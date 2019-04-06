@@ -14,7 +14,7 @@ Resources:
         yum install git -y
         git clone https://github.com/abelhbeyene/cloudformation-experiment.git /usr/share/nginx/html
         cd /usr/share/nginx/html
-        bash ./server-config/cloudformation-startup-script.sh
+        bash ./server-config/init.sh
 
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
