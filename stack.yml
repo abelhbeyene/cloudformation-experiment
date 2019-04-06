@@ -1,0 +1,31 @@
+Resources:
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      # Red Hat Enterprise Linux 7.6 (HVM), SSD Volume Type
+      ImageId: ami-011b3ccf1bd6db744
+      KeyName: key1
+      SecurityGroups:
+        - !Ref InstanceSecurityGroup
+      UserData: !Base64 |
+        #!/bin/bash
+        sudo su
+        yum install git -y
+        git clone https://github.com/abelhbeyene/cloudformation-experiment.git /usr/share/nginx/html
+        cd /usr/share/nginx/html
+        bash ./server-config/cloudformation-startup-script.sh
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SSH, HTTP, HTTPS security rules
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '3000'
+        ToPort: '3000'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
