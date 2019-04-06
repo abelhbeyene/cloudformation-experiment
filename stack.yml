@@ -13,7 +13,27 @@ Resources:
         sudo su
         yum install git -y
         git clone https://github.com/abelhbeyene/cloudformation-experiment.git /usr/share/nginx/html
-        bash /usr/share/nginx/html/server-config/init.sh
+
+        curl https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm > /tmp/epel-release-latest-7.noarch.rpm
+        yum install /tmp/epel-release-latest-7.noarch.rpm -y
+
+        # Install docker: https://github.com/NaturalHistoryMuseum/scratchpads2/wiki/Install-Docker-and-Docker-Compose-(Centos-7)
+        yum install -y yum-utils device-mapper-persistent-data lvm2
+        yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+        yum install http://mirror.centos.org/centos/7/extras/x86_64/Packages/container-selinux-2.68-1.el7.noarch.rpm -y
+        yum install docker-ce -y
+        usermod -aG docker $(whoami)
+        systemctl enable docker.service
+        systemctl start docker.service
+
+        # Install docker compose
+        yum install -y python-pip
+        pip install docker-compose
+        yum upgrade python* -y
+
+        # get docker-compose file and start container
+        (cd /usr/share/nginx/html && docker-compose up --build -d)
+
 
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -28,3 +48,8 @@ Resources:
         FromPort: '22'
         ToPort: '22'
         CidrIp: 0.0.0.0/0
+
+Outputs:
+  InstanceDNSName:
+    Description: The DNSName of the Instance
+    Value: !GetAtt Instance.PublicIp
