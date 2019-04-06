@@ -23,5 +23,4 @@ pip install docker-compose
 yum upgrade python* -y
 
 # get docker-compose file and start container
-cd ../
-docker-compose up --build -d
+(cd /usr/share/nginx/html && docker-compose up --build -d)
