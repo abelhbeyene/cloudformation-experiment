@@ -9,15 +9,38 @@ Resources:
       SecurityGroups:
         - !Ref InstanceSecurityGroup
       UserData: !Base64 |
+        Content-Type: multipart/mixed; boundary="//"
+        MIME-Version: 1.0
+
+        --//
+        Content-Type: text/cloud-config; charset="us-ascii"
+        MIME-Version: 1.0
+        Content-Transfer-Encoding: 7bit
+        Content-Disposition: attachment; filename="cloud-config.txt"
+
+        #cloud-config
+        cloud_final_modules:
+        - [scripts-user, always]
+
+        --//
+        Content-Type: text/x-shellscript; charset="us-ascii"
+        MIME-Version: 1.0
+        Content-Transfer-Encoding: 7bit
+        Content-Disposition: attachment; filename="userdata.txt"
+
         #!/bin/bash
         sudo su
+        
+        # Logging: https://serverfault.com/questions/103501/how-can-i-fully-log-all-bash-scripts-actions
+        exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
         yum install git -y
+
+        rm -rf /usr/share/nginx/html
         git clone https://github.com/abelhbeyene/cloudformation-experiment.git /usr/share/nginx/html
 
+        # Install docker: https://github.com/NaturalHistoryMuseum/scratchpads2/wiki/Install-Docker-and-Docker-Compose-(Centos-7)
         curl https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm > /tmp/epel-release-latest-7.noarch.rpm
         yum install /tmp/epel-release-latest-7.noarch.rpm -y
-
-        # Install docker: https://github.com/NaturalHistoryMuseum/scratchpads2/wiki/Install-Docker-and-Docker-Compose-(Centos-7)
         yum install -y yum-utils device-mapper-persistent-data lvm2
         yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
         yum install http://mirror.centos.org/centos/7/extras/x86_64/Packages/container-selinux-2.68-1.el7.noarch.rpm -y
@@ -25,6 +48,7 @@ Resources:
         usermod -aG docker $(whoami)
         systemctl enable docker.service
         systemctl start docker.service
+
 
         # Install docker compose
         yum install -y python-pip
@@ -34,15 +58,14 @@ Resources:
         # get docker-compose file and start container
         (cd /usr/share/nginx/html && docker-compose up --build -d)
 
-
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: SSH, HTTP, HTTPS security rules
       SecurityGroupIngress:
       - IpProtocol: tcp
-        FromPort: '3000'
-        ToPort: '3000'
+        FromPort: '80'
+        ToPort: '80'
         CidrIp: 0.0.0.0/0
       - IpProtocol: tcp
         FromPort: '22'
@@ -50,6 +73,9 @@ Resources:
         CidrIp: 0.0.0.0/0
 
 Outputs:
-  InstanceDNSName:
-    Description: The DNSName of the Instance
+  InstancePublicIP:
+    Description: The public IP of the instance
     Value: !GetAtt Instance.PublicIp
+  InstancePublicDnsName:
+    Description: The Public DNS Name of the instance
+    Value: !GetAtt Instance.PublicDnsName
