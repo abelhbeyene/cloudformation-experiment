@@ -6,6 +6,9 @@ Resources:
       # Red Hat Enterprise Linux 7.6 (HVM), SSD Volume Type
       ImageId: ami-011b3ccf1bd6db744
       KeyName: key1
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "false"
+          NetworkInterfaceId: !Ref AppVPC
       SecurityGroups:
         - !Ref InstanceSecurityGroup
       UserData: !Base64 |
@@ -30,7 +33,7 @@ Resources:
 
         #!/bin/bash
         sudo su
-        
+
         # Logging: https://serverfault.com/questions/103501/how-can-i-fully-log-all-bash-scripts-actions
         exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
         yum install git -y
@@ -49,6 +52,65 @@ Resources:
         systemctl enable docker.service
         systemctl start docker.service
 
+        # Install docker compose
+        yum install -y python-pip
+        pip install docker-compose
+        yum upgrade python* -y
+
+        # get docker-compose file and start container
+        (cd /usr/share/nginx/html && docker-compose up --build -d)
+  Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      # Red Hat Enterprise Linux 7.6 (HVM), SSD Volume Type
+      ImageId: ami-011b3ccf1bd6db744
+      KeyName: key1
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "false"
+          NetworkInterfaceId: !Ref AppVPC
+      SecurityGroups:
+        - !Ref InstanceSecurityGroup
+      UserData: !Base64 |
+        Content-Type: multipart/mixed; boundary="//"
+        MIME-Version: 1.0
+
+        --//
+        Content-Type: text/cloud-config; charset="us-ascii"
+        MIME-Version: 1.0
+        Content-Transfer-Encoding: 7bit
+        Content-Disposition: attachment; filename="cloud-config.txt"
+
+        #cloud-config
+        cloud_final_modules:
+        - [scripts-user, always]
+
+        --//
+        Content-Type: text/x-shellscript; charset="us-ascii"
+        MIME-Version: 1.0
+        Content-Transfer-Encoding: 7bit
+        Content-Disposition: attachment; filename="userdata.txt"
+
+        #!/bin/bash
+        sudo su
+
+        # Logging: https://serverfault.com/questions/103501/how-can-i-fully-log-all-bash-scripts-actions
+        exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+        yum install git -y
+
+        rm -rf /usr/share/nginx/html
+        git clone https://github.com/abelhbeyene/cloudformation-experiment.git /usr/share/nginx/html
+
+        # Install docker: https://github.com/NaturalHistoryMuseum/scratchpads2/wiki/Install-Docker-and-Docker-Compose-(Centos-7)
+        curl https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm > /tmp/epel-release-latest-7.noarch.rpm
+        yum install /tmp/epel-release-latest-7.noarch.rpm -y
+        yum install -y yum-utils device-mapper-persistent-data lvm2
+        yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+        yum install http://mirror.centos.org/centos/7/extras/x86_64/Packages/container-selinux-2.68-1.el7.noarch.rpm -y
+        yum install docker-ce -y
+        usermod -aG docker $(whoami)
+        systemctl enable docker.service
+        systemctl start docker.service
 
         # Install docker compose
         yum install -y python-pip
@@ -58,6 +120,7 @@ Resources:
         # get docker-compose file and start container
         (cd /usr/share/nginx/html && docker-compose up --build -d)
 
+  
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -72,10 +135,123 @@ Resources:
         ToPort: '22'
         CidrIp: 0.0.0.0/0
 
+  AppInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AppInternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref AppInternetGateway
+      VpcId: !Ref AppVPC
+
+  AppVPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: "10.81.0.0/23"
+      EnableDnsSupport: true
+      
+  AppRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref AppVPC
+  
+  AppRoutes:
+    Type: AWS::EC2::Route
+    Properties: 
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref AppInternetGateway
+      RouteTableId: !Ref AppRouteTable
+  
+  AppSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref AppRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: "10.81.1.0/24"
+      VpcId: !Ref AppVPC
+  
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: "10.81.0.0/24"
+      VpcId: !Ref AppVPC
+
+  ElasticLoadBalancer:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      Instances:
+        - !Ref Instance
+        - !Ref Instance2
+      Listeners:
+        - InstancePort: '80'
+          LoadBalancerPort: '80'
+          Protocol: 'HTTP'
+      AvailabilityZones:
+        Fn::GetAZs: "us-east-1a"
+
+  VPCPublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SSH, HTTP, HTTPS security rules
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+
+  VPCPrivateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SSH, HTTP, HTTPS security rules
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: !Ref VPCPublicSecurityGroup
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: !Ref VPCPublicSecurityGroup
+  # CloudfrontDistribution:
+  #   Type: AWS::CloudFront::Distribution
+  #   Properties:
+  #     DistributionConfig:
+  #       # CacheBehaviors:
+  #       #   - 
+  #       DefaultCacheBehavior:
+  #         TargetOriginId: !GetAtt ElasticLoadBalancer.DNSName
+  #         ViewerProtocolPolicy: allow-all
+  #         ForwardedValues:
+  #           QueryString: true
+  #           Cookies:
+  #             Forward: all
+  #       IPV6Enabled: true
+  #       Enabled: true
+  #       Origins:
+  #         - Id: !GetAtt ElasticLoadBalancer.DNSName 
+  #           DomainName: !GetAtt ElasticLoadBalancer.DNSName
+  #           CustomOriginConfig:    
+  #             HTTPPort: '80'
+  #             HTTPSPort: '443'
+  #             OriginProtocolPolicy: http-only
 Outputs:
   InstancePublicIP:
     Description: The public IP of the instance
     Value: !GetAtt Instance.PublicIp
   InstancePublicDnsName:
-    Description: The Public DNS Name of the instance
+    Description: The Public Domain Name of the instance
     Value: !GetAtt Instance.PublicDnsName
+  ELBDnsName:
+    Description: The Public Domain Name of ELB
+    Value: !GetAtt ElasticLoadBalancer.DNSName
+  # CloudfrontDistributionDomainName:
+  #   Description: The Domain Name of CloudFront
+  #   Value: !GetAtt CloudfrontDistribution.DomainName
